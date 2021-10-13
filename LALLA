@@ -1,0 +1,93 @@
+import pandas as pd
+import math
+import os
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-whitegrid')
+import numpy as np
+from PIL import Image
+import glob
+import moviepy.editor as mp
+from datetime import datetime
+import time
+import os.path
+from os import path
+import shutil
+from IPython.display import display
+
+mov = 1                                      # 如果你想做一个视频的话，设置 mov=1
+workdir = str(os.getcwd()+'/')              # 为所有png和视频设置一个工作目录
+
+# 如果/coo目录不存在，就建立它，否则就删除/coo（和它的内容）
+# 创建一个新的/coo目录。
+if path.exists(str(workdir+'coo'))==False:
+    os.makedirs(str(workdir+'coo'))
+else:
+    shutil.rmtree(str(workdir+'coo'))
+    os.makedirs(str(workdir+'coo'))
+
+# 加载输入参数文件
+df_params = pd.read_csv('Rap_2_LJP.in', sep='\t', header=None, names=['parameter', 'value'])
+#初始该模拟系统热力学属性值
+NDIM = 2                        #二维度设置
+vSum = np.asarray([0.0, 0.0])   #速度之和
+kinEnergy =Prop(0.0, 0.0, 0.0)  #动能
+totEnergy =Prop(0.0, 0.0, 0.0)  #势能
+pressure  =Prop(0.0, 0.0, 0.0)  #压强
+
+systemParams = []              #初始化系统参数列表
+
+#用于产生随机数算法函数的变量
+IADD = 453806245
+IMUL = 314159269
+MASK = 2147483647
+SCALE = 0.4656612873e-9
+randSeedP = 17
+
+#初始化参数：把Rap_2_LJP.文件中的参数值传递给MD模拟所需要的相关变量
+deltaT = float(df_params.values[0][1])              #模拟步长
+density = float(df_params.values[1][1])             #体系密度
+
+
+initUcell = np.asarray([0.0, 0.0])                 #初始化元胞，具体大小由输入文件密度决定
+initUcell[0] = int(df_params.values[2][1])         #元胞X方向长度=20
+initUcell[1] = int(df_params.values[3][1])         #元胞X方向长度=20
+ 
+stepAvg = int(df_params.values[4][1])              #抽样平均数
+stepEquil = float(df_params.values[5][1])          #平衡步长
+stepLimit = float(df_params.values[6][1])          #限制的步数
+temperature = float(df_params.values[7][1])        #体系温度
+
+#定义了一个Mol类对象的数组，大小为20*20=400. mol[0]~mol[399]，共400个氩原子分子
+mol = [Mol(np.asarray([0.0, 0.0]), \
+           np.asarray([0.0, 0.0]), \
+           np.asarray([0.0, 0.0])) for i in range(int(initUcell[0]*initUcell[1]))]
+
+global nMol        #定义分子的数量变量
+nMol = len(mol)    #为mol数组的长度为400
+# 氩-氩相互作用的LJ势参数:
+epsilon =  1
+sigma = 1
+
+# 执行体系初始化相关功能函数
+SetParams()                                   #设置主程序内部模拟所需参数
+SetupJob()                                    #初始化粒子的坐标，速度，加速
+moreCycles = 1                                #MD循环控制开关变量1：run; 0:stop
+
+n = 0                                        #记录步数，用来给每一步输出的坐标图命名                
+while moreCycles:                            #MD循环
+    SingleStep()                             #求解每一步的运动方程
+    if mov==1:
+        plotMolCoo(mol, workdir, n)          #制作单个步长的粒子坐标图
+    n += 1
+    if stepCount >= stepLimit:
+        moreCycles = 0
+        
+#输出模拟过程中生成的参数
+columns = ['timestep','timeNow', '$\Sigma v$', 'E', '$\sigma E$', 'Ek', '$\sigma Ek$', 'P_1', 'P_2']
+df_systemParams = pd.DataFrame(systemParams, columns=columns)   
+#绘制表格，仅在jupyter notebook使用，打印出数据列表
+display(df_systemParams) 
+
+if mov==1:                     
+    makeMov()                 # 制作视频
+GraphOutput()                 #输出体系测定量随模拟时间变化的图像
